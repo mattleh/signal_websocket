@@ -23,7 +23,7 @@ You need a running instance of `signal-cli-rest-api`.
 ### 2. HACS (Recommended)
 1. Open **HACS** in Home Assistant.
 2. Click the three dots in the top right and select **Custom repositories**.
-3. Add your GitHub URL and select **Integration** as the category.
+3. Add [GitHub](https://github.com/mattleh/signal_websocket) URL and select **Integration** as the category.
 4. Click **Download**.
 
 ### 3. Manual

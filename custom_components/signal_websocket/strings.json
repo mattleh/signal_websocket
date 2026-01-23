@@ -1,0 +1,40 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Signal Messenger API",
+        "description": "Enter your signal-cli-rest-api details. WebSocket is recommended for real-time messages, while REST works as a fallback.",
+        "data": {
+          "host": "IP Address / Hostname",
+          "port": "Port",
+          "number": "Signal Number (e.g., +43660...)",
+          "connection_type": "Connection Method"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect to Signal API",
+      "invalid_auth": "Authentication failed",
+      "unknown": "Unexpected error occurred"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Signal Settings",
+        "description": "{msg}",
+        "data": {
+          "scan_interval": "Polling Interval (Seconds)"
+        }
+      }
+    }
+  },
+  "selector": {
+    "connection_type": {
+      "options": {
+        "websocket": "WebSocket (Real-time Push)",
+        "rest": "REST API (Periodic Polling)"
+      }
+    }
+  }
+}
