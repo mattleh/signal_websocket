@@ -68,6 +68,8 @@
         "title": "Assist Authorization",
         "description": "Select specific contacts or groups that are allowed to trigger Home Assistant Assist commands via Signal.",
         "data": {
+          "conv_agent_id": "Conversation Agent",
+          "conv_language": "Language (e.g., de, en)",
           "conv_voice_messages": "Enable voice message transcription (STT)",
           "conv_contacts": "Authorized Contacts",
           "conv_groups": "Authorized Groups"

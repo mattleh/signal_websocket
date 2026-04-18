@@ -82,13 +82,20 @@ class SignalConversationManager:
         # Use the source or group_id as the key for conversation context
         previous_id = self._conversation_ids.get(target)
 
+        # Get agent and language from options
+        agent_id = self.entry.options.get("conv_agent_id")
+        if agent_id == "default":
+            agent_id = None
+        language = self.entry.options.get("conv_language", self.hass.config.language)
+
         try:
             result = await conversation.async_converse(
                 self.hass,
                 text=message_text,
                 conversation_id=previous_id,
                 context=event.context,
-                agent_id=None, # Uses default agent
+                agent_id=agent_id,
+                language=language,
             )
             
             # Store the ID for continuation

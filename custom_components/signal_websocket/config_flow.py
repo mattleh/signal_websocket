@@ -3,6 +3,7 @@ import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.core import callback
+from homeassistant.components import conversation
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers import config_validation as cv
 
@@ -297,10 +298,39 @@ class SignalOptionsFlowHandler(config_entries.OptionsFlow):
         contacts = await self._get_contacts()
         groups = await self._get_groups()
 
+        # Get available agents
+        agent_info = conversation.async_get_agent_info(self.hass)
+        agent_options = {"default": "Default Agent"}
+        if agent_info:
+            if isinstance(agent_info, list):
+                for agent in agent_info:
+                    agent_options[agent.id] = agent.name
+            elif hasattr(agent_info, "id"):
+                agent_options[agent_info.id] = agent_info.name
+
+        # Language options for the dropdown
+        language_options = {
+            "en": "English",
+            "de": "German",
+            "fr": "French",
+            "es": "Spanish",
+            "it": "Italian",
+            "nl": "Dutch",
+            self.hass.config.language: f"System Default ({self.hass.config.language})",
+        }
+
         return self.async_show_form(
             step_id="conversation",
             data_schema=vol.Schema(
                 {
+                    vol.Optional(
+                        "conv_agent_id",
+                        default=self.config_entry.options.get("conv_agent_id", "default"),
+                    ): vol.In(agent_options),
+                    vol.Optional(
+                        "conv_language",
+                        default=self.config_entry.options.get("conv_language", self.hass.config.language),
+                    ): vol.In(language_options),
                     vol.Optional(
                         CONF_CONV_VOICE_MESSAGES,
                         default=self.config_entry.options.get(CONF_CONV_VOICE_MESSAGES, False),
