@@ -8,35 +8,49 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import (
     CoordinatorEntity,
     DataUpdateCoordinator,
-    UpdateFailed,
 )
 
-from .const import CONF_CONNECTION_TYPE, DOMAIN
+from .api import async_call_signal_api
+from .contacts import async_setup_entry as async_setup_contacts
+from .groups import async_setup_entry as async_setup_groups
 
 _LOGGER = logging.getLogger(__name__)
 
+
 async def async_setup_entry(hass, config_entry, async_add_entities):
     """Set up the Signal sensor platform."""
-    host = config_entry.data["host"]
-    port = config_entry.data["port"]
-    number = config_entry.data["number"]
-    conn_type = config_entry.data.get(CONF_CONNECTION_TYPE, "websocket")
-    
-    session = async_get_clientsession(hass)
+    host = config_entry.data.get("host", "127.0.0.1")
+    port = config_entry.data.get("port", 8080)
+    number = config_entry.data.get("number", "")
 
-    if conn_type == "websocket":
-        sensor = SignalWSSensor(number)
+    session = async_get_clientsession(hass)
+    scan_interval = config_entry.options.get("scan_interval", 10)
+
+    # Try WebSocket first.
+    ws_url = f"ws://{host}:{port}/v1/receive/{number}"
+    ws_available = False
+    try:
+        # Perform a quick test connect with a short timeout.
+        async with session.ws_connect(
+            ws_url, timeout=aiohttp.ClientTimeout(total=5)
+        ) as test_ws:
+            await test_ws.close()
+        ws_available = True
+        _LOGGER.info("WebSocket connection available, using real-time mode")
+    except Exception as e:
+        _LOGGER.info("WebSocket not available, falling back to REST polling: %s", e)
+
+    if ws_available:
+        sensor = SignalWSSensor(config_entry.entry_id, number)
         async_add_entities([sensor])
-        
-        ws_url = f"ws://{host}:{port}/v1/receive/{number}"
-        
+
         async def listen_ws():
             await asyncio.sleep(5)
             reconnect_delay = 5
-            
+
             while True:
                 try:
-                    sensor.update_status("connecting") # New helper method
+                    sensor.update_status("connecting")
                     async with session.ws_connect(ws_url, heartbeat=30) as ws:
                         sensor.update_status("connected")
                         reconnect_delay = 5
@@ -45,39 +59,32 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
                                 data = msg.json()
                                 sensor.update_from_data(data)
                                 hass.bus.async_fire("signal_received", data)
-                            elif msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
+                            elif msg.type in (
+                                aiohttp.WSMsgType.CLOSE,
+                                aiohttp.WSMsgType.ERROR,
+                            ):
                                 break
                 except Exception as e:
                     sensor.update_status(f"error: {str(e)}")
                     _LOGGER.error("Signal WS Error: %s", e)
-                
-                await asyncio.sleep(reconnect_delay)
                 reconnect_delay = min(reconnect_delay * 2, 60)
+            
+                await asyncio.sleep(reconnect_delay)
 
-        config_entry.async_on_unload(hass.loop.create_task(listen_ws()).cancel)
-
+        config_entry.async_create_background_task(hass, listen_ws(), "signal_ws_listener")
     else:
-        # REST Mode Polling
+        # Use REST mode for polling.
         rest_url = f"http://{host}:{port}/v1/receive/{number}?send_read_receipts=true"
-        
-        # Get poll interval from options (default 10s)
-        scan_interval = config_entry.options.get("scan_interval", 10)
 
         async def async_update_data():
             try:
-                # Use the new rest_url with the receipt flag
-                async with session.get(rest_url, timeout=15) as response:
-                    if response.status != 200:
-                        return None
-                    
-                    data = await response.json(content_type=None)
-                    
-                    if data and isinstance(data, list) and len(data) > 0:
-                        _LOGGER.debug("Signal API Poll Result: %s messages", len(data))
-                        for msg in data:
-                            hass.bus.async_fire("signal_received", msg)
-                        return data # Return the full list to the coordinator
-                    return None
+                endpoint = f"/v1/receive/{number}?send_read_receipts=true"
+                data = await async_call_signal_api(hass, endpoint, entry=config_entry, timeout=15)
+                if data and isinstance(data, list) and len(data) > 0:
+                    for msg in data:
+                        hass.bus.async_fire("signal_received", msg)
+                    return data
+                return None
             except Exception as e:
                 _LOGGER.debug("Signal poll skip (likely empty or timeout): %s", e)
                 return None
@@ -90,30 +97,29 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
             update_interval=timedelta(seconds=scan_interval),
         )
 
-        # Listener to update interval on-the-fly without restart
-        async def update_listener(hass, entry):
-            new_interval = entry.options.get("scan_interval", 10)
-            coordinator.update_interval = timedelta(seconds=new_interval)
-            _LOGGER.info("Signal poll interval updated to %s seconds", new_interval)
-
-        config_entry.async_on_unload(config_entry.add_update_listener(update_listener))
-
-        # Start the coordinator and add the sensor
+        # Start the coordinator and add the sensor.
         await coordinator.async_config_entry_first_refresh()
-        async_add_entities([SignalRestSensor(coordinator, number)])
+        async_add_entities(
+            [SignalRestSensor(config_entry.entry_id, coordinator, number)]
+        )
 
-    return True
+    await async_setup_contacts(hass, config_entry, async_add_entities)
+    await async_setup_groups(hass, config_entry, async_add_entities)
+
 
 class SignalWSSensor(SensorEntity):
     """WebSocket based sensor for real-time push."""
-    def __init__(self, number):
+
+    def __init__(self, entry_id, number):
         self._attr_name = f"Signal {number}"
-        self._attr_unique_id = f"signal_ws_{number}"
+        self._attr_unique_id = f"signal_ws_{entry_id}_{number}"
         self._attr_native_value = "Waiting..."
         self._attr_extra_state_attributes = {}
 
     def update_status(self, status):
         """Update the connection status in attributes."""
+        if not self.hass:
+            return
         self._attr_extra_state_attributes["connection_status"] = status
         self.async_write_ha_state()
 
@@ -121,63 +127,59 @@ class SignalWSSensor(SensorEntity):
         """Update the sensor only if it's a real message."""
         envelope = data.get("envelope", {})
         data_message = envelope.get("dataMessage", {})
-        
-        # FILTER: Nur fortfahren, wenn eine 'dataMessage' existiert und Text enthält
+
+        # Filter: Only proceed if a dataMessage exists and contains text.
         if not data_message or "message" not in data_message:
-            _LOGGER.debug("Signal: Event ignoriert (kein Nachrichtentext)")
+            _LOGGER.debug("Signal: Event ignored (no message text)")
             return
 
         msg_text = data_message.get("message")
-        
-        # Falls die Nachricht leer ist (z.B. nur ein Anhang ohne Text), 
-        # kannst du entscheiden, ob du sie trotzdem sehen willst.
+
+        # If the message is empty (for example, attachment-only), keep the event
+        # but do not update the sensor text.
         if msg_text:
+            if not self.hass:
+                return
             self._attr_native_value = msg_text
             self._attr_extra_state_attributes = {
                 "last_received": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 "source": envelope.get("sourceName", envelope.get("source")),
                 "source_number": envelope.get("source"),
                 "full_envelope": envelope,
-                "connection_status": "connected"
+                "connection_status": "connected",
             }
-            # Nur jetzt wird der Zustand in Home Assistant wirklich aktualisiert
             self.async_write_ha_state()
 
+
 class SignalRestSensor(CoordinatorEntity, SensorEntity):
-    """REST based sensor with batch history and receipts."""
-    def __init__(self, coordinator, number):
+    """REST based sensor."""
+
+    def __init__(self, entry_id, coordinator, number):
         super().__init__(coordinator)
         self._attr_name = f"Signal {number}"
-        self._attr_unique_id = f"signal_rest_{number}"
-        self._state = "Listening..."
-        self._attributes = {
-            "last_received": "Never",
-            "recent_messages": []
-        }
+        self._attr_unique_id = f"signal_rest_{entry_id}_{number}"
+        self._attr_native_value = "Listening..."
+        self._attr_extra_state_attributes = {"last_received": "Never"}
 
     @property
     def native_value(self):
         """Return the latest message as the sensor state."""
         if self.coordinator.data:
             messages = self.coordinator.data
-            last_envelope = messages[-1].get("envelope", {})
-            
-            # Update the main state to the newest message text
-            self._state = last_envelope.get("dataMessage", {}).get("message", "New Msg")
-            
-            # Store metadata and EVERY message text from the batch
-            self._attributes["last_received"] = datetime.now().strftime("%H:%M:%S")
-            self._attributes["source"] = last_envelope.get("sourceName", last_envelope.get("source"))
-            self._attributes["batch_size"] = len(messages)
-            
-            # This captures every message in the poll
-            self._attributes["recent_messages"] = [
-                m.get("envelope", {}).get("dataMessage", {}).get("message", "") 
-                for m in messages
-            ]
-            
-        return self._state
+            if messages:
+                last_envelope = messages[-1].get("envelope", {})
+                self._attr_native_value = last_envelope.get("dataMessage", {}).get(
+                    "message", "New Msg"
+                )
+                self._attr_extra_state_attributes["last_received"] = (
+                    datetime.now().strftime("%H:%M:%S")
+                )
+                self._attr_extra_state_attributes["source"] = last_envelope.get(
+                    "sourceName", last_envelope.get("source")
+                )
+
+        return self._attr_native_value
 
     @property
     def extra_state_attributes(self):
-        return self._attributes
+        return self._attr_extra_state_attributes

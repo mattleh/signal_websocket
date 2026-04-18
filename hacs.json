@@ -4,5 +4,6 @@
   "country": "DE",
   "homeassistant": "2025.1.0",
   "iot_class": "local_push",
-  "type": "integration"
+  "type": "integration",
+  "render_readme": true
 }

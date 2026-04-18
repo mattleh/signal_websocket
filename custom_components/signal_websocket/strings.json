@@ -3,12 +3,41 @@
     "step": {
       "user": {
         "title": "Signal Messenger API",
-        "description": "Enter your signal-cli-rest-api details. WebSocket is recommended for real-time messages, while REST works as a fallback.",
+        "description": "Enter your signal-cli-rest-api details. The integration will automatically use WebSocket for real-time messages or fall back to REST polling.",
         "data": {
           "host": "IP Address / Hostname",
-          "port": "Port",
+          "port": "Port"
+        }
+      },
+      "account": {
+        "title": "Select Account",
+        "description": "Select an existing account or choose to enter manually/register new.",
+        "data": {
+          "account": "Account"
+        }
+      },
+      "enter_number": {
+        "title": "Enter Signal Number",
+        "description": "Enter your Signal number manually.",
+        "data": {
+          "number": "Signal Number (e.g., +43660...)"
+        }
+      },
+      "register": {
+        "title": "Register New Number",
+        "description": "⚠️ EXPERIMENTAL: Register a new Signal number. This feature is experimental and may not work reliably.",
+        "data": {
           "number": "Signal Number (e.g., +43660...)",
-          "connection_type": "Connection Method"
+          "use_voice": "Use voice call instead of SMS",
+          "captcha": "Captcha (if required)"
+        }
+      },
+      "verify": {
+        "title": "Verify Number",
+        "description": "⚠️ EXPERIMENTAL: Enter the verification code received via SMS or voice call. This feature is experimental and may not work reliably.",
+        "data": {
+          "token": "Verification Code",
+          "pin": "PIN (if set)"
         }
       }
     },
@@ -18,22 +47,31 @@
       "unknown": "Unexpected error occurred"
     }
   },
+  "entity": {
+    "notify": {
+      "signal_notify": { "name": "Notify ({number})" }
+    }
+  },
   "options": {
     "step": {
       "init": {
         "title": "Signal Settings",
         "description": "{msg}",
         "data": {
-          "scan_interval": "Polling Interval (Seconds)"
+          "scan_interval": "Polling Interval (Seconds)",
+          "selected_contacts": "Selected Contacts",
+          "selected_groups": "Selected Groups",
+          "enable_conversation": "Enable Assist Integration (Bridge to Home Assistant Assist)"
         }
-      }
-    }
-  },
-  "selector": {
-    "connection_type": {
-      "options": {
-        "websocket": "WebSocket (Real-time Push)",
-        "rest": "REST API (Periodic Polling)"
+      },
+      "conversation": {
+        "title": "Assist Authorization",
+        "description": "Select specific contacts or groups that are allowed to trigger Home Assistant Assist commands via Signal.",
+        "data": {
+          "conv_voice_messages": "Enable voice message transcription (STT)",
+          "conv_contacts": "Authorized Contacts",
+          "conv_groups": "Authorized Groups"
+        }
       }
     }
   }

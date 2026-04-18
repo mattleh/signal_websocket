@@ -1,0 +1,255 @@
+send_message:
+  name: Send Message
+  description: Send a Signal message to one or more recipients.
+  fields:
+    message:
+      name: Message
+      description: The message text.
+      required: true
+      example: "Hello from Home Assistant"
+      selector:
+        text:
+          multiline: true
+    contact_entity_id:
+      name: Target Entities
+      description: Select Signal contact or group sensors to send the message to.
+      required: false
+      selector:
+        entity:
+          multiple: true
+          filter:
+            - integration: signal_websocket
+              domain: sensor
+    view_once:
+      name: View Once
+      description: Send message as view-once.
+      required: false
+      example: true
+      selector:
+        boolean:
+    recipients:
+      name: Manual Recipients
+      description: List of phone numbers or usernames for direct messages.
+      required: false
+      example: ["+1234567890"]
+      selector:
+        object:
+    group_id:
+      name: Group ID
+      description: Group ID to send a message to a group. If set, direct recipients may be omitted.
+      required: false
+      example: "groupidhex"
+    base64_attachments:
+      name: Attachments
+      description: List of base64-encoded attachments (optional).
+      required: false
+      example: ["base64string"]
+    sticker:
+      name: Sticker
+      description: Sticker ID to send (optional).
+      required: false
+      example: "sticker-id"
+    text_mode:
+      name: Text Mode
+      description: Use styling options like 'styled' for rich text.
+      required: false
+      example: "styled"
+    notify_self:
+      name: Notify Self
+      description: Whether the sender should receive a copy.
+      required: false
+      example: false
+    quote_author:
+      name: Quote Author
+      description: Author of the message being replied to.
+      required: false
+      example: "+1234567890"
+    quote_message:
+      name: Quote Message
+      description: Text of the quoted message.
+      required: false
+      example: "Original message"
+    quote_timestamp:
+      name: Quote Timestamp
+      description: Timestamp of the quoted message.
+      required: false
+      example: 1234567890
+    edit_timestamp:
+      name: Edit Timestamp
+      description: Original message timestamp for edits.
+      required: false
+      example: 1234567890
+
+remote_delete:
+  name: Remote Delete
+  description: Delete a sent message remotely.
+  fields:
+    recipient:
+      name: Recipient
+      description: Phone number of the recipient.
+      required: true
+      example: "+1234567890"
+    target_timestamp:
+      name: Target Timestamp
+      description: Timestamp of the message to delete.
+      required: true
+      example: 1234567890
+
+set_typing_indicator:
+  name: Set Typing Indicator
+  description: Show or hide typing indicator.
+  fields:
+    recipient:
+      name: Recipient
+      description: Phone number.
+      required: true
+      example: "+1234567890"
+    action:
+      name: Action
+      description: start or stop.
+      required: true
+      example: "start"
+
+create_group:
+  name: Create Group
+  description: Create a new Signal group.
+  fields:
+    name:
+      name: Name
+      description: Group name.
+      required: true
+      example: "My Group"
+    members:
+      name: Members
+      description: List of member phone numbers.
+      required: true
+      example: ["+1234567890"]
+
+add_group_members:
+  name: Add Group Members
+  description: Add members to a group.
+  fields:
+    group_id:
+      name: Group ID
+      description: Group ID (hex).
+      required: true
+      example: "groupidhex"
+    members:
+      name: Members
+      description: List of phone numbers to add.
+      required: true
+      example: ["+1234567890"]
+
+remove_group_members:
+  name: Remove Group Members
+  description: Remove members from a group.
+  fields:
+    group_id:
+      name: Group ID
+      required: true
+    members:
+      name: Members
+      required: true
+
+update_group:
+  name: Update Group
+  description: Update group name or description.
+  fields:
+    group_id:
+      name: Group ID
+      required: true
+    name:
+      name: Name
+      required: false
+    description:
+      name: Description
+      required: false
+
+delete_group:
+  name: Delete Group
+  description: Delete a group.
+  fields:
+    group_id:
+      name: Group ID
+      required: true
+
+sync_contacts:
+  name: Sync Contacts
+  description: Sync local contacts to linked devices.
+
+update_contact:
+  name: Update Contact
+  description: Update contact info.
+  fields:
+    contact_number:
+      name: Contact Number
+      required: true
+    name:
+      name: Name
+      required: false
+
+update_profile:
+  name: Update Profile
+  description: Update your profile.
+  fields:
+    name:
+      name: Name
+      required: false
+    about:
+      name: About
+      required: false
+
+register_number:
+  name: Register Number
+  description: Register a new Signal number.
+  fields:
+    number:
+      name: Number
+      description: The phone number to register.
+      required: true
+      example: "+1234567890"
+    pin:
+      name: PIN
+      description: Optional PIN for the new account.
+      required: false
+      example: "1234"
+    use_voice:
+      name: Use Voice
+      description: Use voice registration instead of SMS.
+      required: false
+      example: true
+    captcha:
+      name: CAPTCHA
+      description: CAPTCHA token if a challenge is required.
+      required: false
+      example: "signalcaptcha://..."
+
+verify_number:
+  name: Verify Number
+  description: Verify a registered number with the verification token.
+  fields:
+    number:
+      name: Number
+      description: The phone number to verify.
+      required: true
+      example: "+1234567890"
+    token:
+      name: Token
+      description: The verification token received via SMS.
+      required: true
+      example: "123456"
+    pin:
+      name: PIN
+      description: Optional PIN if registration used a PIN.
+      required: false
+      example: "1234"
+
+remove_contact:
+  name: Remove Contact
+  description: Remove a contact from the local contact list.
+  fields:
+    contact_number:
+      name: Contact Number
+      description: The phone number of the contact to remove.
+      required: true
+      example: "+1234567890"
