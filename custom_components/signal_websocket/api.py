@@ -91,6 +91,7 @@ class SignalMessageReceiver:
         self.last_message = "Waiting..."
         self.extra_attributes = {}
         self.ws_available = False
+        self.formatted_number = None
         self.ws_url = None
         self.coordinator: DataUpdateCoordinator | None = None
         self._sensor_callback = None
@@ -102,13 +103,14 @@ class SignalMessageReceiver:
         number = self.entry.data.get(CONF_NUMBER, "")
         session = async_get_clientsession(self.hass)
 
-        # Ensure number has the '+' prefix and is URL-encoded for the WebSocket path
-        formatted_number = number
-        if formatted_number.isdigit() and not formatted_number.startswith("+"):
-            formatted_number = f"+{formatted_number}"
-        safe_number = formatted_number.replace("+", "%2B")
+        # Ensure number has the '+' prefix
+        self.formatted_number = number
+        if self.formatted_number.isdigit() and not self.formatted_number.startswith("+"):
+            self.formatted_number = f"+{self.formatted_number}"
 
-        self.ws_url = f"ws://{host}:{port}/v1/receive/{safe_number}?send_read_receipts=true"
+        # WebSocket path requires manual encoding of the '+' prefix
+        safe_number = self.formatted_number.replace("+", "%2B")
+        self.ws_url = f"ws://{host}:{port}/v1/receive/{safe_number}"
         
         try:
             async with session.ws_connect(self.ws_url, timeout=aiohttp.ClientTimeout(total=5)) as test_ws:
@@ -132,8 +134,7 @@ class SignalMessageReceiver:
 
     async def _async_update_rest_data(self) -> Any:
         """Poll data via REST."""
-        number = self.entry.data.get(CONF_NUMBER, "")
-        endpoint = f"/v1/receive/{safe_number}?send_read_receipts=true"
+        endpoint = f"/v1/receive/{self.formatted_number}?send_read_receipts=true"
         try:
             data = await async_call_signal_api(self.hass, endpoint, entry=self.entry, timeout=15)
             if data and isinstance(data, list) and len(data) > 0:
@@ -165,6 +166,8 @@ class SignalMessageReceiver:
                             data = msg.json()
                             self.update_from_data(data)
                             self.hass.bus.async_fire("signal_received", data)
+                            # Trigger manual read receipt for WebSocket messages
+                            self.hass.async_create_task(self._async_send_read_receipt(data))
                         elif msg.type in (aiohttp.WSMsgType.CLOSE, aiohttp.WSMsgType.ERROR):
                             break
             except Exception as e:
@@ -174,6 +177,32 @@ class SignalMessageReceiver:
             
             reconnect_delay = min(reconnect_delay * 2, 60)
             await asyncio.sleep(reconnect_delay)
+
+    async def _async_send_read_receipt(self, data: dict) -> None:
+        """Send a read receipt for a received message."""
+        envelope = data.get("envelope", {})
+        data_message = envelope.get("dataMessage", {})
+
+        # Only send receipts for actual data messages with content
+        if not data_message or "message" not in data_message:
+            return
+
+        source = envelope.get("source")
+        timestamp = envelope.get("timestamp")
+
+        if not source or not timestamp:
+            return
+
+        payload = {
+            "receipt_type": "read",
+            "recipient": source,
+            "timestamp": timestamp,
+        }
+        endpoint = f"/v1/receipts/{self.formatted_number}"
+        try:
+            await async_call_signal_api(self.hass, endpoint, entry=self.entry, method="post", payload=payload)
+        except Exception as err:
+            _LOGGER.debug("Failed to send automatic read receipt: %s", err)
 
     def update_from_data(self, data: dict) -> None:
         """Process a raw Signal message envelope into state."""
