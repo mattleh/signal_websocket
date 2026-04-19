@@ -4,9 +4,8 @@ from typing import Any
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import ServiceValidationError, HomeAssistantError
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from .const import DOMAIN, CONF_HOST, CONF_PORT, CONF_NUMBER
-from .api import async_call_signal_api
+from .const import DOMAIN, CONF_NUMBER
+from .api import async_call_signal_api, async_process_attachments, SignalMessageReceiver
 from .conversation import SignalConversationManager
 from .groups import async_handle_group_service
 from .contacts import async_handle_contact_service
@@ -18,10 +17,17 @@ PLATFORMS = ["sensor", "notify"]
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Signal WebSocket from a config entry."""
     hass.data.setdefault(DOMAIN, {})
+
+    # Initialize the centralized receiver
+    receiver = SignalMessageReceiver(hass, entry)
+    await receiver.async_setup()
+    
+    if receiver.ws_available:
+        entry.async_create_background_task(hass, receiver.listen_ws(), "signal_ws_listener")
     
     # Initialize conversation manager
     conv_manager = SignalConversationManager(hass, entry)
-    hass.data[DOMAIN][entry.entry_id] = {"conv_manager": conv_manager}
+    hass.data[DOMAIN][entry.entry_id] = {"conv_manager": conv_manager, "receiver": receiver}
 
     # Register event listener for incoming messages
     entry.async_on_unload(
@@ -32,8 +38,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         """Handle the send_message service call."""
         sender = entry.data.get(CONF_NUMBER, "")
 
-        def _sanitize_recipient(r: Any) -> str:
+        def _sanitize_recipient(r: Any) -> str | None:
+            if r is None:
+                return None
             val = str(r).strip()
+            if not val or val.lower() == "none":
+                return None
             # If it's all digits and doesn't start with +, it's likely a phone number missing the prefix
             if val.isdigit() and not val.startswith("+"):
                 return f"+{val}"
@@ -41,7 +51,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         # Collect recipients from various possible fields
         raw_recipients = call.data.get("recipients", [])
-        recipients = [_sanitize_recipient(r) for r in (raw_recipients if isinstance(raw_recipients, list) else [raw_recipients])]
+        recipients = [res for r in (raw_recipients if isinstance(raw_recipients, list) else [raw_recipients]) if (res := _sanitize_recipient(r))]
 
         if group_id := call.data.get("group_id"):
             recipients.append(_sanitize_recipient(group_id))
@@ -55,7 +65,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             for ent_id in ent_ids:
                 if (state := hass.states.get(ent_id)) is not None:
                     if val := (state.attributes.get("number") or state.attributes.get("id")):
-                        recipients.append(_sanitize_recipient(val))
+                        if sanitized := _sanitize_recipient(val):
+                            recipients.append(sanitized)
         if not recipients:
             raise ServiceValidationError("No recipients provided for Signal message")
 
@@ -64,8 +75,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             "number": sender,
         }
 
-        # Add optional API fields
-        optional_fields = ["base64_attachments", "sticker", "text_mode", "view_once", "notify_self"]
+        # Process attachments using the shared helper
+        base64_attachments = await async_process_attachments(hass, call.data)
+
+        if base64_attachments:
+            base_payload["base64_attachments"] = base64_attachments
+
+        # Add remaining optional API fields
+        optional_fields = [
+            "sticker", "text_mode", "view_once", "notify_self", "link_preview",
+            "quote_author", "quote_message", "quote_timestamp", "edit_timestamp", "mentions"
+        ]
         for field in optional_fields:
             if field in call.data:
                 base_payload[field] = call.data[field]
@@ -79,50 +99,22 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 payload = {**base_payload, "recipients": batch}
                 await async_call_signal_api(hass, "/v2/send", entry=entry, method="post", payload=payload)
 
-    async def async_handle_remote_delete(call: ServiceCall) -> None:
-        """Handle remote delete service."""
-        payload = {
-            "recipient": str(call.data.get("recipient", "")),
-            "target_timestamp": call.data["target_timestamp"]
-        }
-        endpoint = f"/v1/remote-delete/{entry.data[CONF_NUMBER]}"
-        await async_call_signal_api(hass, endpoint, entry=entry, method="delete", payload=payload)
-
-    async def async_handle_typing_indicator(call: ServiceCall) -> None:
-        """Handle typing indicator service."""
-        sender = entry.data.get(CONF_NUMBER, "")
-        method = "put" if call.data["action"] == "start" else "delete"
-        payload = {"recipient": call.data["recipient"]}
-        await async_call_signal_api(hass, f"/v1/typing-indicator/{sender}", entry=entry, method=method, payload=payload)
-
-    async def async_handle_registration_service(call: ServiceCall) -> None:
-        """Handle number registration and verification."""
-        number = call.data["number"]
-        if call.service == "register_number":
-            endpoint = f"/v1/register/{number}"
-            payload = {k: v for k, v in call.data.items() if k != "number"}
-            await async_call_signal_api(hass, endpoint, entry=entry, method="post", payload=payload)
-        else:
-            token = call.data["token"]
-            endpoint = f"/v1/register/{number}/verify/{token}"
-            payload = {"pin": call.data.get("pin")}
-            await async_call_signal_api(hass, endpoint, entry=entry, method="post", payload=payload)
-
     hass.services.async_register(DOMAIN, "send_message", async_handle_send_message)
-    hass.services.async_register(DOMAIN, "remote_delete", async_handle_remote_delete)
-    hass.services.async_register(DOMAIN, "set_typing_indicator", async_handle_typing_indicator)
     
+    # Define wrapper handlers to ensure coroutines are properly awaited by Home Assistant
+    async def handle_group_service(call: ServiceCall) -> None:
+        await async_handle_group_service(hass, entry, call)
+
+    async def handle_contact_service(call: ServiceCall) -> None:
+        await async_handle_contact_service(hass, entry, call)
+
     # Group Management
-    for service in ("create_group", "add_group_members", "remove_group_members", "update_group", "delete_group"):
-        hass.services.async_register(DOMAIN, service, lambda call: async_handle_group_service(hass, entry, call))
+    for service in ("create_group", "manage_group_membership", "update_group", "delete_group"):
+        hass.services.async_register(DOMAIN, service, handle_group_service)
     
     # Contacts & Profile
-    for service in ("sync_contacts", "update_contact", "remove_contact", "update_profile"):
-        hass.services.async_register(DOMAIN, service, lambda call: async_handle_contact_service(hass, entry, call))
-
-    # Registration
-    hass.services.async_register(DOMAIN, "register_number", async_handle_registration_service)
-    hass.services.async_register(DOMAIN, "verify_number", async_handle_registration_service)
+    for service in ("sync_contacts", "update_contact", "remove_contact"):
+        hass.services.async_register(DOMAIN, service, handle_contact_service)
 
     # Register update listener to handle options changes
     entry.async_on_unload(entry.add_update_listener(update_listener))

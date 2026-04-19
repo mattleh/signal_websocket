@@ -1,4 +1,3 @@
-import base64
 import logging
 from typing import Any
 
@@ -10,15 +9,11 @@ from homeassistant.components.notify import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ServiceValidationError
-from homeassistant.const import CONF_HOST, CONF_PORT
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .api import async_call_signal_api
+from .api import async_call_signal_api, async_process_attachments
 
 _LOGGER = logging.getLogger(__name__)
-
-MAX_ATTACHMENT_SIZE = 52428800  # 50MB limit for attachments
 
 
 async def async_setup_entry(
@@ -104,24 +99,8 @@ class SignalNotifyEntity(NotifyEntity):
                 if field in data:
                     base_payload[field] = data[field]
 
-            # Process attachments
-            base64_attachments = data.get("base64_attachments", [])
-
-            # 1. Fetch from URLs (Async)
-            if urls := data.get("urls"):
-                session = async_get_clientsession(self.hass)
-                verify_ssl = data.get("verify_ssl", True)
-                fetched = await self._fetch_attachments_from_urls(
-                    session, urls, verify_ssl
-                )
-                base64_attachments.extend(fetched)
-
-            # 2. Read local files (Offload to executor)
-            if files := data.get("attachments"):
-                local = await self.hass.async_add_executor_job(
-                    self._read_local_files, files
-                )
-                base64_attachments.extend(local)
+            # Process attachments using the shared helper
+            base64_attachments = await async_process_attachments(self.hass, data)
 
             if base64_attachments:
                 base_payload["base64_attachments"] = base64_attachments
@@ -139,32 +118,3 @@ class SignalNotifyEntity(NotifyEntity):
                 _LOGGER.debug("Signal notification sent successfully from %s", self._number)
             except Exception as err:
                 _LOGGER.error("Failed to send Signal notification: %s", err)
-
-    async def _fetch_attachments_from_urls(self, session, urls, verify_ssl):
-        """Fetch external files and encode them to base64."""
-        results = []
-        for url in urls:
-            try:
-                async with session.get(url, ssl=verify_ssl, timeout=15) as resp:
-                    if resp.status == 200:
-                        content = await resp.read()
-                        if len(content) <= MAX_ATTACHMENT_SIZE:
-                            results.append(base64.b64encode(content).decode("utf-8"))
-            except Exception as err:
-                _LOGGER.warning("Could not fetch attachment from %s: %s", url, err)
-        return results
-
-    def _read_local_files(self, filenames):
-        """Read local files and encode them to base64."""
-        results = []
-        for filename in filenames:
-            if not self.hass.config.is_allowed_path(filename):
-                _LOGGER.warning("Path not allowed: %s", filename)
-                continue
-            try:
-                with open(filename, "rb") as f:
-                    content = f.read()
-                    results.append(base64.b64encode(content).decode("utf-8"))
-            except Exception as err:
-                _LOGGER.error("Error reading local file %s: %s", filename, err)
-        return results

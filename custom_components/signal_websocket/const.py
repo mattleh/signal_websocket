@@ -13,3 +13,4 @@ CONF_ENABLE_CONVERSATION = "enable_conversation"
 CONF_CONV_CONTACTS = "conv_contacts"
 CONF_CONV_GROUPS = "conv_groups"
 CONF_CONV_VOICE_MESSAGES = "conv_voice_messages"
+MAX_ATTACHMENT_SIZE = 52428800  # 50MB

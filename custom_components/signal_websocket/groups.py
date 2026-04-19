@@ -1,8 +1,9 @@
 import logging
+import urllib.parse
 from datetime import timedelta
-
+from typing import Any
 from homeassistant.core import HomeAssistant, ServiceCall
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.update_coordinator import (
@@ -11,7 +12,13 @@ from homeassistant.helpers.update_coordinator import (
 )
 
 from .api import async_call_signal_api
-from .const import CONF_SELECTED_GROUPS, CONF_NUMBER, CONF_HOST, CONF_PORT
+from .const import (
+    CONF_SELECTED_GROUPS,
+    CONF_NUMBER,
+    CONF_HOST,
+    CONF_PORT,
+    DOMAIN,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -36,6 +43,9 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     )
 
     await coordinator.async_config_entry_first_refresh()
+
+    # Store coordinator to allow manual refresh from services
+    hass.data[DOMAIN][config_entry.entry_id]["group_coordinator"] = coordinator
 
     # Prune orphaned entities from the registry that are no longer selected
     selected_groups = config_entry.options.get(CONF_SELECTED_GROUPS, [])
@@ -89,25 +99,92 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
 
 async def async_handle_group_service(hass: HomeAssistant, entry: ConfigEntry, call: ServiceCall) -> None:
     """Handle Signal group management services."""
+    def _resolve_id(val: Any) -> str | None:
+        """Resolve entity ID to actual number/id if needed."""
+        if val is None:
+            return None
+        # If the UI/Script passes a list, take the first element
+        if isinstance(val, list):
+            if not val:
+                return None
+            val = val[0]
+            
+        val_str = str(val).strip()
+        if not val_str or val_str.lower() == "none":
+            return None
+
+        if val_str.startswith("sensor."):
+            if (state := hass.states.get(val_str)) is not None:
+                val_str = str(state.attributes.get("id") or state.attributes.get("number") or val_str)
+        
+        return val_str
+
     sender = entry.data.get(CONF_NUMBER, "")
-    group_id = call.data.get("group_id")
-    method = "post"
+    group_id = _resolve_id(call.data.get("group_id"))
     endpoint = f"/v1/groups/{sender}"
+    payload = {}
 
-    if group_id:
-        endpoint += f"/{group_id}"
-
-    if call.service in ("add_group_members", "remove_group_members"):
-        endpoint += "/members"
-        if call.service == "remove_group_members":
-            method = "delete"
+    # Determine HTTP method and specific endpoint based on the HA service call
+    if call.service == "create_group":
+        method = "post"
+    elif call.service == "manage_group_membership":
+        if not group_id:
+            raise ServiceValidationError("Group ID is required for managing membership")
+        operation = call.data.get("operation", "add")
+        role = call.data.get("role", "member")
+        sub_resource = "admins" if role == "admin" else "members"
+        method = "delete" if operation == "remove" else "post"
+        endpoint += f"/{urllib.parse.quote(group_id, safe='')}/{sub_resource}"
     elif call.service == "update_group":
+        if not group_id:
+            raise ServiceValidationError("Group ID is required for updates")
         method = "put"
+        endpoint += f"/{urllib.parse.quote(group_id, safe='')}"
     elif call.service == "delete_group":
+        if not group_id:
+            raise ServiceValidationError("Group ID is required for deletion")
         method = "delete"
+        endpoint += f"/{urllib.parse.quote(group_id, safe='')}"
+    else:
+        raise ServiceValidationError(f"Unknown group service: {call.service}")
 
-    payload = {k: v for k, v in call.data.items() if k != "group_id"}
+    # Prepare strictly filtered payload based on service
+    if "members" in call.data:
+        raw_members = call.data["members"]
+        if not isinstance(raw_members, list):
+            raw_members = [raw_members]
+        # Resolve any entity IDs provided in the members list
+        payload["members"] = [_resolve_id(m) for m in raw_members]
+
+    # Add metadata fields only for create or update operations
+    if call.service in ("create_group", "update_group"):
+        for field in ("name", "description", "expiration_time", "group_link"):
+            if field in call.data:
+                payload[field] = call.data[field]
+
+    # Construct nested permissions object
+    permissions = {}
+    for field in ("add_members", "edit_group", "send_messages"):
+        if field in call.data:
+            permissions[field] = call.data[field]
+    
+    if permissions:
+        payload["permissions"] = permissions
+
     await async_call_signal_api(hass, endpoint, entry=entry, method=method, payload=payload)
+
+    # Handle post-deletion cleanup
+    if call.service == "delete_group" and group_id:
+        options = dict(entry.options)
+        selected_groups = list(options.get(CONF_SELECTED_GROUPS, []))
+
+        if group_id in selected_groups:
+            selected_groups.remove(group_id)
+            hass.config_entries.async_update_entry(
+                entry, options={**options, CONF_SELECTED_GROUPS: selected_groups}
+            )
+        elif (data := hass.data.get(DOMAIN, {}).get(entry.entry_id)) and (coord := data.get("group_coordinator")):
+            await coord.async_refresh()
 
 
 class SignalGroupsSummarySensor(CoordinatorEntity, SensorEntity):

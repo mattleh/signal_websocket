@@ -1,4 +1,5 @@
 from typing import Any
+import logging
 import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.exceptions import HomeAssistantError
@@ -7,7 +8,7 @@ from homeassistant.components import conversation
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers import config_validation as cv
 
-from .api import async_call_signal_api
+from .api import async_call_signal_api, async_process_attachments
 from .const import (
     DOMAIN,
     CONF_HOST,
@@ -21,6 +22,8 @@ from .const import (
     CONF_CONV_GROUPS,
     CONF_CONV_VOICE_MESSAGES,
 )
+
+_LOGGER = logging.getLogger(__name__)
 
 class SignalConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Signal Messenger."""
@@ -216,39 +219,54 @@ class SignalOptionsFlowHandler(config_entries.OptionsFlow):
     async def _get_contacts(self):
         """Fetch contacts from the API."""
         number = self.config_entry.data.get(CONF_NUMBER, "")
+        # Start with current selection to prevent data loss if API is unreachable
+        current_selection = self.config_entry.options.get(CONF_SELECTED_CONTACTS, [])
+        contacts_dict = {num: num for num in current_selection}
+
         try:
             contacts = await async_call_signal_api(self.hass, f"/v1/contacts/{number}", entry=self.config_entry)
-            return {
-                contact.get("number", ""): contact.get("name", contact.get("number", ""))
-                for contact in contacts
-            }
-        except Exception:
-            return {}
+            if contacts:
+                for contact in contacts:
+                    num = contact.get("number")
+                    if num:
+                        contacts_dict[num] = contact.get("name") or num
+        except Exception as err:
+            _LOGGER.warning("Could not fetch contacts for options flow: %s", err)
+        return contacts_dict
 
     async def _get_groups(self):
         """Fetch groups from the API."""
         number = self.config_entry.data.get(CONF_NUMBER, "")
+        # Start with current selection to prevent data loss if API is unreachable
+        current_selection = self.config_entry.options.get(CONF_SELECTED_GROUPS, [])
+        groups_dict = {gid: gid for gid in current_selection}
+
         try:
             groups = await async_call_signal_api(self.hass, f"/v1/groups/{number}", entry=self.config_entry)
-            return {
-                group.get("id", ""): group.get("name", "Unnamed Group")
-                for group in groups
-            }
-        except Exception:
-            return {}
+            if groups:
+                for group in groups:
+                    gid = group.get("id")
+                    if gid:
+                        groups_dict[gid] = group.get("name") or "Unnamed Group"
+        except Exception as err:
+            _LOGGER.warning("Could not fetch groups for options flow: %s", err)
+        return groups_dict
 
     async def async_step_init(self, user_input=None):
-        """Manage the options."""
+        """Show the configuration menu."""
+        return self.async_show_menu(
+            step_id="init",
+            menu_options=["settings", "profile", "conversation"],
+        )
+
+    async def async_step_settings(self, user_input=None):
+        """Manage the general settings."""
         if user_input is not None:
             self.options.update({
                 CONF_SCAN_INTERVAL: user_input.get(CONF_SCAN_INTERVAL, 10),
                 CONF_SELECTED_CONTACTS: user_input.get(CONF_SELECTED_CONTACTS, []),
                 CONF_SELECTED_GROUPS: user_input.get(CONF_SELECTED_GROUPS, []),
-                CONF_ENABLE_CONVERSATION: user_input.get(CONF_ENABLE_CONVERSATION, False),
             })
-
-            if self.options.get(CONF_ENABLE_CONVERSATION):
-                return await self.async_step_conversation()
 
             return self.async_create_entry(
                 title="",
@@ -258,8 +276,6 @@ class SignalOptionsFlowHandler(config_entries.OptionsFlow):
         # Fetch contacts and groups.
         contacts = await self._get_contacts()
         groups = await self._get_groups()
-
-        description_msg = "Polling interval used when WebSocket is unavailable and REST fallback is active."
 
         options_schema = vol.Schema(
             {
@@ -275,17 +291,64 @@ class SignalOptionsFlowHandler(config_entries.OptionsFlow):
                     CONF_SELECTED_GROUPS,
                     default=self.config_entry.options.get(CONF_SELECTED_GROUPS, []),
                 ): cv.multi_select(groups),
-                vol.Optional(
-                    CONF_ENABLE_CONVERSATION,
-                    default=self.config_entry.options.get(CONF_ENABLE_CONVERSATION, False),
-                ): bool,
             }
         )
 
         return self.async_show_form(
-            step_id="init",
+            step_id="settings",
             data_schema=options_schema,
-            description_placeholders={"msg": description_msg},
+        )
+
+    async def async_step_profile(self, user_input: dict[str, Any] | None = None):
+        """Step to update Signal profile."""
+        number = self.config_entry.data.get(CONF_NUMBER, "")
+        errors = {}
+
+        if user_input is not None:
+            payload = {}
+            if name := user_input.get("name"):
+                payload["name"] = name
+            
+            if about := user_input.get("about"):
+                payload["about"] = about
+
+            # Process avatar image if provided
+            avatar_input = {
+                "urls": [user_input["avatar_url"]] if user_input.get("avatar_url") else [],
+                "attachments": [user_input["avatar_path"]] if user_input.get("avatar_path") else []
+            }
+            if avatar_input["urls"] or avatar_input["attachments"]:
+                try:
+                    avatars = await async_process_attachments(self.hass, avatar_input, raise_on_error=True)
+                    if avatars:
+                        payload["base64_avatar"] = avatars[0]
+                except Exception as e:
+                    errors["base"] = str(e)
+
+            if not errors:
+                try:
+                    await async_call_signal_api(
+                        self.hass,
+                        f"/v1/profiles/{number}",
+                        entry=self.config_entry,
+                        method="put",
+                        payload=payload,
+                    )
+                    return self.async_create_entry(title="", data=self.options)
+                except Exception as e:
+                    errors["base"] = str(e)
+
+        return self.async_show_form(
+            step_id="profile",
+            data_schema=vol.Schema(
+                {
+                    vol.Required("name"): str,
+                    vol.Optional("about"): str,
+                    vol.Optional("avatar_path"): str,
+                    vol.Optional("avatar_url"): str,
+                }
+            ),
+            errors=errors,
         )
 
     async def async_step_conversation(self, user_input: dict[str, Any] | None = None):
@@ -323,6 +386,10 @@ class SignalOptionsFlowHandler(config_entries.OptionsFlow):
             step_id="conversation",
             data_schema=vol.Schema(
                 {
+                    vol.Optional(
+                        CONF_ENABLE_CONVERSATION,
+                        default=self.config_entry.options.get(CONF_ENABLE_CONVERSATION, False),
+                    ): bool,
                     vol.Optional(
                         "conv_agent_id",
                         default=self.config_entry.options.get("conv_agent_id", "default"),

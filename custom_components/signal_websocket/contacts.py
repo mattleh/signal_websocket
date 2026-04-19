@@ -97,20 +97,26 @@ async def async_handle_contact_service(hass: HomeAssistant, entry: ConfigEntry, 
     sender = entry.data.get(CONF_NUMBER, "")
     method = "post"
     endpoint = f"/v1/contacts/{sender}"
+    recipient = call.data.get("contact_number")
     payload = {}
 
     if call.service == "sync_contacts":
         endpoint += "/sync"
     elif call.service == "update_contact":
         method = "put"
-        payload = {"recipient": call.data["contact_number"], "name": call.data.get("name")}
+        payload = {"recipient": recipient}
+        if name := call.data.get("name"):
+            payload["name"] = name
     elif call.service == "remove_contact":
         method = "delete"
-        payload = {"recipient": call.data["contact_number"]}
+        payload = {"recipient": recipient}
     elif call.service == "update_profile":
         method = "put"
         endpoint = f"/v1/profiles/{sender}"
-        payload = {k: v for k, v in call.data.items()}
+        # Filter only profile-related fields
+        for field in ("name", "about", "base64_avatar"):
+            if field in call.data:
+                payload[field] = call.data[field]
 
     await async_call_signal_api(hass, endpoint, entry=entry, method=method, payload=payload)
 

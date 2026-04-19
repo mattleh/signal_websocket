@@ -271,62 +271,6 @@ update_contact:
       name: Name
       required: false
 
-update_profile:
-  name: Update Profile
-  description: Update your profile.
-  fields:
-    name:
-      name: Name
-      required: false
-    about:
-      name: About
-      required: false
-
-register_number:
-  name: Register Number
-  description: Register a new Signal number.
-  fields:
-    number:
-      name: Number
-      description: The phone number to register.
-      required: true
-      example: "+1234567890"
-    pin:
-      name: PIN
-      description: Optional PIN for the new account.
-      required: false
-      example: "1234"
-    use_voice:
-      name: Use Voice
-      description: Use voice registration instead of SMS.
-      required: false
-      example: true
-    captcha:
-      name: CAPTCHA
-      description: CAPTCHA token if a challenge is required.
-      required: false
-      example: "signalcaptcha://..."
-
-verify_number:
-  name: Verify Number
-  description: Verify a registered number with the verification token.
-  fields:
-    number:
-      name: Number
-      description: The phone number to verify.
-      required: true
-      example: "+1234567890"
-    token:
-      name: Token
-      description: The verification token received via SMS.
-      required: true
-      example: "123456"
-    pin:
-      name: PIN
-      description: Optional PIN if registration used a PIN.
-      required: false
-      example: "1234"
-
 remove_contact:
   name: Remove Contact
   description: Remove a contact from the local contact list.

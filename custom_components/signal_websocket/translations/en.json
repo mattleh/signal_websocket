@@ -56,23 +56,47 @@
     "step": {
       "init": {
         "title": "Signal Settings",
-        "description": "{msg}",
+        "description": "Choose an action to configure your Signal integration.",
+        "menu_options": {
+          "settings": "General Settings",
+          "profile": "Update Profile",
+          "conversation": "Assist Settings"
+        },
+        "menu_option_descriptions": {
+          "settings": "Configure polling and entity selection.",
+          "profile": "Change your Signal display name and 'About' status.",
+          "conversation": "Configure Home Assistant Assist bridge and authorization."
+        }
+      },
+      "settings": {
+        "title": "General Settings",
+        "description": "Configure polling interval and select which contacts/groups should appear as sensors in Home Assistant.",
         "data": {
           "scan_interval": "Polling Interval (Seconds)",
           "selected_contacts": "Selected Contacts",
-          "selected_groups": "Selected Groups",
-          "enable_conversation": "Enable Assist Integration (Bridge to Home Assistant Assist)"
+          "selected_groups": "Selected Groups"
         }
       },
       "conversation": {
         "title": "Assist Authorization",
         "description": "Select specific contacts or groups that are allowed to trigger Home Assistant Assist commands via Signal.",
         "data": {
+          "enable_conversation": "Enable Assist Integration (Bridge to Home Assistant Assist)",
           "conv_agent_id": "Conversation Agent",
           "conv_language": "Language (e.g., de, en)",
           "conv_voice_messages": "Enable voice message transcription (STT)",
           "conv_contacts": "Authorized Contacts",
           "conv_groups": "Authorized Groups"
+        }
+      },
+      "profile": {
+        "title": "Update Profile",
+        "description": "Update your Signal profile information.",
+        "data": {
+          "name": "Name",
+          "about": "About",
+          "avatar_path": "Avatar Local Path (e.g. /config/www/me.jpg)",
+          "avatar_url": "Avatar URL"
         }
       }
     }

@@ -8,6 +8,7 @@ A high-performance Home Assistant integration to receive Signal messages in real
 ## ✨ Key Features
 
 * **Auto-Detection:** Automatically uses WebSocket for real-time push when available, falls back to REST polling.
+* **Profile Management:** Update your Signal name, 'About' status, and avatar (via URL or local path) directly from the integration options.
 * **Smart Filtering:** Automatically ignores "Typing..." indicators and empty delivery receipts to prevent "New Event" spam.
 * **Assist Integration:** Native bridge to Home Assistant Assist. Control your home by texting or sending voice messages to your Signal account.
 * **Voice Transcription:** Automatically transcribes Signal voice messages (M4A/AAC) using Home Assistant's STT engines for processing via Assist.
@@ -15,7 +16,7 @@ A high-performance Home Assistant integration to receive Signal messages in real
 * **Multi-Message Batching:** In REST mode, all messages received during a poll are captured, with the sensor state updating to the latest message.
 * **Event-Driven:** Fires a `signal_received` event for every message, making it perfect for complex automations.
 * **Automatic Reconnect:** Built-in exponential backoff and heartbeat pings to keep the connection alive.
-* **Comprehensive API Coverage:** Services for sending messages, managing groups, contacts, reactions, receipts, and more.
+* **Comprehensive API Coverage:** Services for sending messages, managing groups, contacts, and more.
 * **Data Sensors:** Additional sensors for groups and contacts overview.
 
 ## 🚀 Installation
@@ -45,16 +46,18 @@ Go to **Settings > Devices & Services > Add Integration** and search for **Signa
 
 The integration automatically detects and uses WebSocket for real-time messages when available, otherwise falls back to REST polling.
 
-### ⚙️ Options & Assist Authorization
-After the initial setup, you can click **Configure** on the integration card to access advanced settings:
+### ⚙️ Options & Configuration
+After the initial setup, you can click **Configure** on the integration card to access a navigation menu:
 
-| Option | Description |
-| :--- | :--- |
-| **Polling Interval** | Set the fallback polling frequency (1-3600s). |
-| **Selected Contacts/Groups** | Choose which Signal entities should be created as sensors in HA. |
-| **Enable Assist** | Toggle the bridge between Signal and Home Assistant Assist. |
-| **Authorized Contacts/Groups** | For security, specifically authorize who can trigger Assist commands. |
-| **Voice Messages (STT)** | Enable automatic transcription of incoming voice messages. |
+#### 1. General Settings
+* **Polling Interval:** Set the fallback polling frequency (1-3600s).
+* **Selected Contacts/Groups:** Choose which Signal entities should be created as sensors in HA.
+#### 2. Update Profile
+* Update your Signal display name, 'About' status, and Profile Avatar (supports local file paths or external URLs).
+#### 3. Assist Settings
+* **Enable Assist:** Toggle the bridge between Signal and Home Assistant Assist.
+* **Authorized Contacts/Groups:** Specifically authorize who can trigger Assist commands.
+* **Voice Messages (STT):** Enable automatic transcription of incoming voice messages.
 
 ---
 
@@ -72,39 +75,35 @@ The integration provides comprehensive services to interact with Signal:
 
 ### Messaging
 - **send_message**: Send text messages or attachments to individuals or groups.
-- **remote_delete**: Delete sent messages remotely. (not testet)
-- **set_typing_indicator**: Show/hide typing indicator. (not testet) not working?
+- **notify**: Standard Home Assistant Notify entity for easy automation usage.
 
 ### Groups
-- **create_group**: Create new Signal groups. (not testet)
-- **add_group_members** / **remove_group_members**: Manage group membership. (not testet)
-- **update_group**: Update group name or description. (not testet)
-- **delete_group**: Delete groups. (not testet)
+- **create_group**: Create new Signal groups with custom permissions and disappearing message timers.
+- **manage_group_membership**: Unified service to add/remove members or promote/demote administrators.(broken maybe signal-cli problem)
+- **update_group**: Update group name, description, and settings. untested
+- **delete_group**: Permanently delete groups. (working partly)
 
-### Contacts & Profile
-- **sync_contacts**: Sync contacts to linked devices. (not testet)
-- **update_contact**: Update contact information. (not testet)
-- **remove_contact**: Remove a contact from the local list. (not testet)
-- **update_profile**: Update your Signal profile. (not testet)
-- **register_number**: Register a new Signal number. (not testet)
-- **verify_number**: Verify a registered number with SMS token. (not testet)
+### Contacts
+- **sync_contacts**: Sync local contacts to linked devices. untested
+- **update_contact**: Update contact names and information. untested
+- **remove_contact**: Remove a contact from the local list. untested
 
 ## � Supported API Endpoints
 
 - **`GET /v1/receive/{number}`**: Receive incoming Signal messages via WebSocket or REST polling.
 - **`POST /v2/send`**: Send messages with attachments, quotes, replies, stickers, and rich text styling.
-- **`DELETE /v1/remote-delete/{number}`**: Delete a sent message remotely. (not testet)
 - **`GET /v1/groups/{number}`**: List Signal groups for the configured account.
 - **`POST /v1/groups/{number}`**: Create a new Signal group. (not testet)
-- **`PUT /v1/groups/{number}/{groupid}`**: Update group metadata. (not testet)
-- **`DELETE /v1/groups/{number}/{groupid}`**: Delete a group. (not testet)
-- **`POST /v1/groups/{number}/{groupid}/members`**: Add members to a group. (not testet)
-- **`DELETE /v1/groups/{number}/{groupid}/members`**: Remove members from a group. (not testet)
+- **`PUT /v1/groups/{number}/{groupid}`**: Update group metadata and permissions.
+- **`DELETE /v1/groups/{number}/{groupid}`**: Delete a group.
+- **`POST /v1/groups/{number}/{groupid}/members`**: Add members to a group.
+- **`DELETE /v1/groups/{number}/{groupid}/members`**: Remove members from a group.
+- **`POST /v1/groups/{number}/{groupid}/admins`**: Promote members to admin.
+- **`DELETE /v1/groups/{number}/{groupid}/admins`**: Demote admins to members.
 - **`GET /v1/contacts/{number}`**: List contacts for the configured account.
-- **`PUT /v1/contacts/{number}`**: Update or add a contact. (not testet)
-- **`POST /v1/contacts/{number}/sync`**: Sync contacts to linked devices. (not testet)
-- **`POST /v1/register/{number}`**: Register a new Signal number. (not testet)
-- **`POST /v1/register/{number}/verify/{token}`**: Verify a registered number. (not testet)
+- **`PUT /v1/contacts/{number}`**: Update or add a contact.
+- **`POST /v1/contacts/{number}/sync`**: Sync contacts to linked devices.
+- **`PUT /v1/profiles/{number}`**: Update profile name, about, and avatar.
 
 ## �📊 Sensors
 
