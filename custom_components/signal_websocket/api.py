@@ -13,7 +13,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
-from .const import CONF_HOST, CONF_PORT, CONF_NUMBER, MAX_ATTACHMENT_SIZE
+from .const import CONF_HOST, CONF_PORT, CONF_NUMBER, MAX_ATTACHMENT_SIZE, CONF_RECEIVE_GROUPS
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -211,6 +211,13 @@ class SignalMessageReceiver:
 
         if not data_message or "message" not in data_message:
             return
+
+        group_id = data_message.get("groupInfo", {}).get("groupId")
+        if group_id:
+            receive_groups = self.entry.options.get(CONF_RECEIVE_GROUPS, [])
+            if group_id not in receive_groups:
+                _LOGGER.debug("Ignoring group message event: monitoring is not enabled for group %s", group_id)
+                return
 
         self.last_message = data_message.get("message")
         self.extra_attributes = {

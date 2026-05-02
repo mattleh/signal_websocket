@@ -7,7 +7,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .assist import async_transcribe
 from .api import async_call_signal_api
-from .const import CONF_ENABLE_CONVERSATION, CONF_CONV_CONTACTS, CONF_CONV_GROUPS, CONF_NUMBER, CONF_CONV_VOICE_MESSAGES
+from .const import CONF_ENABLE_CONVERSATION, CONF_CONV_CONTACTS, CONF_CONV_GROUPS, CONF_NUMBER, CONF_CONV_VOICE_MESSAGES, CONF_RECEIVE_GROUPS
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -43,8 +43,7 @@ class SignalConversationManager:
                 attachment_id = attachment.get("id", filename)
                 if (
                     attachment.get("contentType") == "audio/aac"
-                    and filename.startswith("signal")
-                    and filename.endswith("m4a")
+                    and (filename is None or filename.endswith("m4a") or filename.endswith("aac"))
                 ):
                     _LOGGER.debug("Audio message detected, attempting transcription: %s (ID: %s)", filename, attachment_id)
                     audio_content = await self._async_download_attachment(attachment_id)
@@ -64,9 +63,12 @@ class SignalConversationManager:
         conv_groups = self.entry.options.get(CONF_CONV_GROUPS, [])
         
         group_id = data_message.get("groupInfo", {}).get("groupId")
-        
-        # Decide target and authorization based on whether it's a group or direct message
+
+        receive_groups = self.entry.options.get(CONF_RECEIVE_GROUPS, [])
         if group_id:
+            if group_id not in receive_groups:
+                _LOGGER.debug("Ignoring group message: monitoring is not enabled for group %s", group_id)
+                return
             if group_id not in conv_groups:
                 _LOGGER.debug("Ignoring group message: group %s not authorized for Assist", group_id)
                 return

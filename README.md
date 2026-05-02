@@ -10,6 +10,7 @@ A high-performance Home Assistant integration to receive Signal messages in real
 * **Auto-Detection:** Automatically uses WebSocket for real-time push when available, falls back to REST polling.
 * **Profile Management:** Update your Signal name, 'About' status, and avatar (via URL or local path) directly from the integration options.
 * **Smart Filtering:** Automatically ignores "Typing..." indicators and empty delivery receipts to prevent "New Event" spam.
+* **Privacy Controls:** Opt-in monitoring for group messages to prevent unwanted event spam and ensure privacy.
 * **Assist Integration:** Native bridge to Home Assistant Assist. Control your home by texting or sending voice messages to your Signal account.
 * **Voice Transcription:** Automatically transcribes Signal voice messages (M4A/AAC) using Home Assistant's STT engines for processing via Assist.
 * **REST Fallback:** Robust REST polling mode with configurable intervals when WebSocket is unavailable.
@@ -56,7 +57,8 @@ After the initial setup, you can click **Configure** on the integration card to 
 * Update your Signal display name, 'About' status, and Profile Avatar (supports local file paths or external URLs).
 #### 3. Assist Settings
 * **Enable Assist:** Toggle the bridge between Signal and Home Assistant Assist.
-* **Authorized Contacts/Groups:** Specifically authorize who can trigger Assist commands.
+* **Receive Groups:** Opt-in to monitor incoming messages from specific groups (enables events and automations). Groups must be in this list before they can be authorized for Assist.
+* **Authorized Contacts/Groups:** Specifically authorize who can trigger Assist commands (subset of monitored groups).
 * **Voice Messages (STT):** Enable automatic transcription of incoming voice messages.
 
 ---
@@ -64,6 +66,8 @@ After the initial setup, you can click **Configure** on the integration card to 
 ## 🤖 Assist Integration
 
 When **Assist Integration** is enabled, authorized users can send messages to the Signal account to trigger Assist commands (e.g., "Turn on the kitchen light"). 
+
+**Privacy Note:** Group messages are only monitored if the group is explicitly added to the **Receive Groups** list. This prevents unwanted event spam from groups where HA is just a member for outbound notifications. Groups in **Receive Groups** can fire `signal_received` events for automations, but only groups in **Authorized Contacts/Groups** will forward messages to Assist.
 
 If **Voice message transcription** is enabled, you can also send Signal voice notes. The integration will transcode the audio using FFmpeg, transcribe it via your default Assist STT engine, and process the resulting text.
 

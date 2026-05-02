@@ -20,6 +20,7 @@ from .const import (
     CONF_ENABLE_CONVERSATION,
     CONF_CONV_CONTACTS,
     CONF_CONV_GROUPS,
+    CONF_RECEIVE_GROUPS,
     CONF_CONV_VOICE_MESSAGES,
 )
 
@@ -409,6 +410,10 @@ class SignalOptionsFlowHandler(config_entries.OptionsFlow):
                     vol.Optional(
                         CONF_CONV_GROUPS,
                         default=self.config_entry.options.get(CONF_CONV_GROUPS, []),
+                    ): cv.multi_select(groups),
+                    vol.Optional(
+                        CONF_RECEIVE_GROUPS,
+                        default=self.config_entry.options.get(CONF_RECEIVE_GROUPS, []),
                     ): cv.multi_select(groups),
                 }
             ),
